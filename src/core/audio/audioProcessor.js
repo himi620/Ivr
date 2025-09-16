@@ -5,6 +5,8 @@ const config = require('../../config');
  */
 async function processIncomingAudio(audioBuffer, sessionId) {
   try {
+    console.log(`🎵 Processing audio for session ${sessionId}: ${audioBuffer.length} bytes`);
+    
     // Apply audio amplification like the working dev branch
     let processedAudio = audioBuffer;
     
@@ -14,6 +16,8 @@ async function processIncomingAudio(audioBuffer, sessionId) {
     // Convert to base64 for ElevenLabs
     const audioBase64 = processedAudio.toString('base64');
 
+    console.log(`✅ Audio processed successfully for session ${sessionId}: ${audioBase64.length} chars base64`);
+
     return {
       success: true,
       audioData: audioBase64,
@@ -22,7 +26,7 @@ async function processIncomingAudio(audioBuffer, sessionId) {
     };
 
   } catch (error) {
-    console.error('❌ Audio processing failed:', error.message);
+    console.error(`❌ Audio processing failed for session ${sessionId}:`, error.message);
     return {
       success: false,
       error: error.message

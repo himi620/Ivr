@@ -197,14 +197,26 @@ async function handleElevenLabsMessage(data, conversationSession) {
  * Handle conversation ready event
  */
 async function handleConversationReady(message, conversationSession) {
-  // Store conversation metadata
-  conversationSession.conversationId = message.conversation_initiation_metadata_event?.conversation_id;
-  conversationSession.audioFormat = message.conversation_initiation_metadata_event?.agent_output_audio_format;
-  conversationSession.isReady = true;
-  
-  console.log(`✅ ElevenLabs conversation ready for session: ${conversationSession.sessionId}`);
-  console.log(`🔊 Ready for real-time audio streaming (no buffering) - like working dev branch`);
+  try {
+    // Store conversation metadata
+    conversationSession.conversationId = message.conversation_initiation_metadata_event?.conversation_id;
+    conversationSession.audioFormat = message.conversation_initiation_metadata_event?.agent_output_audio_format;
+    conversationSession.isReady = true;
+    
+    console.log(`✅ ElevenLabs conversation ready for session: ${conversationSession.sessionId}`);
+    console.log(`🔊 Ready for real-time audio streaming (no buffering) - like working dev branch`);
+    
+    // Update connection manager with ready status
+    const { updateConnection } = require('../../core/websocket/connectionManager');
+    updateConnection(conversationSession.sessionId, {
+      agentConversation: conversationSession,
+      elevenLabsInitialized: true
+    });
+    
+  } catch (error) {
+    console.error(`❌ Error handling conversation ready for session ${conversationSession.sessionId}:`, error.message);
   }
+}
 
 /**
  * Handle audio from ElevenLabs agent
@@ -266,38 +278,51 @@ function handleAgentResponse(message, conversationSession) {
  * Send audio to ElevenLabs agent
  */
 async function sendAudioToAgent(sessionId, audioBase64Data) {
-  const conversation = activeConversations.get(sessionId);
-  
-  console.log(`🔍 AUDIO SEND DEBUG for session ${sessionId}:`);
-  console.log(`  - Conversation exists: ${!!conversation}`);
-  console.log(`  - Conversation ready: ${conversation?.isReady}`);
-  console.log(`  - WebSocket state: ${conversation?.agentWebSocket?.readyState}`);
-  console.log(`  - Audio data length: ${audioBase64Data.length} chars`);
-  
-  if (!conversation || !conversation.isReady) {
-    console.error('❌ CRITICAL: ElevenLabs conversation not ready for session:', sessionId);
-    return;
-  }
-
-  // Check connection state before sending audio
-  if (conversation.agentWebSocket.readyState !== 1) {
-    console.error('❌ CRITICAL: ElevenLabs WebSocket not ready, state:', conversation.agentWebSocket.readyState);
-    return;
-  }
-
-  const audioMessage = {
-    type: "user_audio_chunk",
-    audio_data: audioBase64Data
-  };
-
   try {
+    const conversation = activeConversations.get(sessionId);
+    
+    console.log(`🔍 AUDIO SEND DEBUG for session ${sessionId}:`);
+    console.log(`  - Conversation exists: ${!!conversation}`);
+    console.log(`  - Conversation ready: ${conversation?.isReady}`);
+    console.log(`  - WebSocket state: ${conversation?.agentWebSocket?.readyState}`);
+    console.log(`  - Audio data length: ${audioBase64Data?.length || 0} chars`);
+    
+    if (!conversation) {
+      console.error('❌ CRITICAL: No ElevenLabs conversation found for session:', sessionId);
+      return false;
+    }
+
+    if (!conversation.isReady) {
+      console.error('❌ CRITICAL: ElevenLabs conversation not ready for session:', sessionId);
+      return false;
+    }
+
+    // Check connection state before sending audio
+    if (conversation.agentWebSocket.readyState !== 1) {
+      console.error('❌ CRITICAL: ElevenLabs WebSocket not ready, state:', conversation.agentWebSocket.readyState);
+      return false;
+    }
+
+    if (!audioBase64Data || audioBase64Data.length === 0) {
+      console.error('❌ CRITICAL: Empty audio data for session:', sessionId);
+      return false;
+    }
+
+    const audioMessage = {
+      type: "user_audio_chunk",
+      audio_data: audioBase64Data
+    };
+
     console.log(`📤 Sending audio message to ElevenLabs for session: ${sessionId}`);
     conversation.agentWebSocket.send(JSON.stringify(audioMessage));
     console.log(`✅ Audio sent successfully to ElevenLabs for session: ${sessionId}`);
+    
+    return true;
+
   } catch (error) {
     console.error(`❌ CRITICAL ERROR sending audio to ElevenLabs for session ${sessionId}:`, error.message);
-    console.error(`🔍 Audio message:`, JSON.stringify(audioMessage, null, 2));
     console.error(`🔍 Stack trace:`, error.stack);
+    return false;
   }
 }
 

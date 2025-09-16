@@ -39,11 +39,24 @@ async function handleKnowlarityStream(websocket, urlPath) {
     try {
       console.log(`📥 Message received for session ${sessionId}: ${incomingMessage instanceof Buffer ? `Buffer(${incomingMessage.length})` : `Text(${incomingMessage.length})`}`);
       
+      // IMPROVEMENT: Add message counter for better tracking
+      // let messageCount = 0;
+      // messageCount++;
+      // console.log(`📊 Message #${messageCount} for session: ${sessionId}`);
+      
       // Handle first message - could be metadata or audio (like working dev branch)
       if (isFirstMessage) {
         console.log(`🎆 Processing first message for session: ${sessionId}`);
         // Set flag IMMEDIATELY and SYNCHRONOUSLY to prevent race condition
         isFirstMessage = false;
+        
+        // IMPROVEMENT: Add race condition protection with atomic flag
+        // const wasFirstMessage = isFirstMessage;
+        // isFirstMessage = false;
+        // if (!wasFirstMessage) {
+        //   console.log(`⚠️ Race condition detected - message already processed for session: ${sessionId}`);
+        //   return;
+        // }
         
         // Check if first message is JSON metadata or binary audio
         if (await tryProcessAsMetadata(incomingMessage, sessionId)) {
@@ -53,6 +66,42 @@ async function handleKnowlarityStream(websocket, urlPath) {
           console.log(`📤 First message was audio, not metadata for session: ${sessionId}`);
         }
       }
+
+      // IMPROVEMENT: Enhanced message type detection and routing
+      // if (incomingMessage instanceof Buffer) {
+      //   // Try to parse as JSON first (for client audio messages)
+      //   try {
+      //     const messageStr = incomingMessage.toString();
+      //     const parsedMessage = JSON.parse(messageStr);
+      //     
+      //     if (parsedMessage.type === "audio-chunk" && parsedMessage.audio) {
+      //       console.log(`🎵 Processing JSON audio chunk for session: ${sessionId}`);
+      //       // Convert base64 audio to binary
+      //       const audioBuffer = Buffer.from(parsedMessage.audio, "base64");
+      //       await handleIncomingAudio(audioBuffer, sessionId);
+      //     } else if (parsedMessage.type === "control") {
+      //       console.log(`🎛️ Processing control message for session: ${sessionId}`);
+      //       await handleControlMessage(parsedMessage, sessionId);
+      //     } else {
+      //       console.log(`📝 Processing JSON message for session: ${sessionId}`);
+      //       await handleGenericMessage(parsedMessage, sessionId);
+      //     }
+      //   } catch (parseError) {
+      //     // Not JSON, treat as binary audio
+      //     console.log(`🎵 Processing binary audio data for session: ${sessionId}`);
+      //     await handleIncomingAudio(incomingMessage, sessionId);
+      //   }
+      // } else {
+      //   // Text message - could be control or metadata
+      //   console.log(`📝 Processing text message for session: ${sessionId}`);
+      //   try {
+      //     const parsedMessage = JSON.parse(incomingMessage);
+      //     await handleControlMessage(parsedMessage, sessionId);
+      //   } catch (parseError) {
+      //     console.log(`📄 Processing plain text message for session: ${sessionId}`);
+      //     await handleTextMessage(incomingMessage, sessionId);
+      //   }
+      // }
 
       // Route audio and control messages
       console.log(`🔀 Routing message for session: ${sessionId}`);
@@ -243,6 +292,19 @@ async function routeIncomingMessage(incomingMessage, sessionId) {
 async function handleIncomingAudio(audioBuffer, sessionId) {
   console.log(`🎵 Received audio from caller, size: ${audioBuffer.length} bytes`);
 
+  // IMPROVEMENT: Add audio quality validation
+  // if (audioBuffer.length === 0) {
+  //   console.warn(`⚠️ Empty audio buffer received for session: ${sessionId}`);
+  //   return;
+  // }
+  
+  // IMPROVEMENT: Add audio size validation
+  // const MAX_AUDIO_SIZE = 1024 * 1024; // 1MB limit
+  // if (audioBuffer.length > MAX_AUDIO_SIZE) {
+  //   console.error(`❌ Audio buffer too large for session ${sessionId}: ${audioBuffer.length} bytes`);
+  //   return;
+  // }
+
   // Process audio
   const audioResult = await processIncomingAudio(audioBuffer, sessionId);
 
@@ -251,20 +313,75 @@ async function handleIncomingAudio(audioBuffer, sessionId) {
       `❌ Audio processing failed for session ${sessionId}:`,
       audioResult.error
     );
+    
+    // IMPROVEMENT: Add audio processing error recovery
+    // try {
+    //   console.log(`🔄 Attempting audio processing recovery for session: ${sessionId}`);
+    //   // Try alternative audio processing method
+    //   const fallbackResult = await processIncomingAudioFallback(audioBuffer, sessionId);
+    //   if (fallbackResult.success) {
+    //     console.log(`✅ Audio processing recovered for session: ${sessionId}`);
+    //     audioResult = fallbackResult;
+    //   } else {
+    //     console.error(`❌ Audio processing recovery failed for session: ${sessionId}`);
+    //     return;
+    //   }
+    // } catch (recoveryError) {
+    //   console.error(`💥 Audio processing recovery error for session ${sessionId}:`, recoveryError.message);
+    //   return;
+    // }
+    
     return;
   }
 
   console.log(`📤 Base64 length: ${audioResult.audioData.length} characters`);
 
+  // IMPROVEMENT: Add audio buffering for better reliability
+  // const connection = getConnection(sessionId);
+  // if (!connection?.agentConversation?.isReady) {
+  //   // Buffer audio instead of dropping
+  //   if (!connection.audioBuffer) {
+  //     connection.audioBuffer = [];
+  //   }
+  //   connection.audioBuffer.push(audioResult.audioData);
+  //   console.log(`📦 Buffered audio for session: ${sessionId} (buffer size: ${connection.audioBuffer.length})`);
+  //   
+  //   // Limit buffer size to prevent memory issues
+  //   const MAX_BUFFER_SIZE = 10;
+  //   if (connection.audioBuffer.length > MAX_BUFFER_SIZE) {
+  //     connection.audioBuffer.shift(); // Remove oldest audio
+  //     console.log(`📦 Buffer size limited for session: ${sessionId}`);
+  //   }
+  //   return;
+  // }
+
   // Send to ElevenLabs agent ONLY if ready - NO BUFFERING (like working dev branch)
   const connection = getConnection(sessionId);
+  if (!connection) {
+    console.error(`❌ No connection found for session: ${sessionId}`);
+    return;
+  }
+
   if (connection?.agentConversation?.isReady) {
     console.log(`🔊 Sending audio to ElevenLabs agent for session: ${sessionId}`);
-    await sendAudioToAgent(sessionId, audioResult.audioData);
+    const sendResult = await sendAudioToAgent(sessionId, audioResult.audioData);
+    if (sendResult) {
+      console.log(`✅ Audio sent successfully to ElevenLabs for session: ${sessionId}`);
+    } else {
+      console.error(`❌ Failed to send audio to ElevenLabs for session: ${sessionId}`);
+    }
   } else {
     // Drop audio until ElevenLabs is ready - NO BUFFERING to match dev branch behavior
     const readyStatus = connection?.agentConversation ? 'connected but not ready' : 'not connected';
     console.log(`⚠️ Audio dropped for session: ${sessionId} - ElevenLabs ${readyStatus}`);
+    
+    // Debug agent status
+    console.log(`🔍 Agent status for session ${sessionId}:`, {
+      hasConnection: !!connection,
+      hasAgentConversation: !!connection?.agentConversation,
+      isReady: connection?.agentConversation?.isReady,
+      elevenLabsInitialized: connection?.elevenLabsInitialized
+    });
   }
 }
 
@@ -285,6 +402,8 @@ function cleanupSession(sessionId) {
   if (connection?.agentConversation) {
     console.log("🤖 Ending ElevenLabs conversation...");
     endConversation(sessionId);
+    
+    // console.log(`✅ ElevenLabs conversation ended for session: ${sessionId}`);
   } else {
     console.log("⚠️ No agent conversation to clean up");
   }
